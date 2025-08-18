@@ -1,127 +1,209 @@
 import torch
-from GD import reconstruct_gd
 import numpy as np
-import torch.nn as nn
 from deepinv.loss.metric import PSNR
+from GD import reconstruct_gd
+from SGD import reconstruct_sgd
+from typing import List
+import matplotlib.pyplot as plt
+np.random.seed(0)
+class MultilevelSmoothingOptimizer:
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        physics,
+        data_fidelity,
+        ground_truth,
+        lmbd,
+        lr=1e-2,
+        optimizer_type="SGD",
+        device="cpu",
+        lower_alg="GD",
+        lower_lr=1e-2
+    ):
+        self.model = model.to(device)
+        self.physics = physics
+        self.data_fidelity = data_fidelity
+        self.gt = ground_truth.to(device)
+        self.gt_slice = ground_truth.to(device)
+        self.slice = None  # Placeholder for lower-level indices given each level
+        self.lmbd = lmbd
+        self.device = device
+        self.psnr_metric = PSNR()
+        self.optimizer = self._build_optimizer(optimizer_type, lr)
+        self.alg = lower_alg
+        self.lower_lr = lower_lr
 
-def sample_noise_like(model):
-    return {name: torch.randn_like(param).detach() for name, param in model.named_parameters()}
+    def _build_optimizer(self, opt_type, lr):
+        if opt_type == "Adam":
+            return torch.optim.Adam(self.model.parameters(), lr=lr)
+        return torch.optim.SGD(self.model.parameters(), lr=lr)
 
-def apply_perturbation(model, noise, sigma=1e-2):
-    with torch.no_grad():
-        for name, param in model.named_parameters():
-            param.add_(sigma * noise[name])
-def apply_negative_perturbation(model, noise, sigma=1e-2):
-    with torch.no_grad():
-        for name, param in model.named_parameters():
-            param.sub_(sigma * noise[name])
-                       
-def set_parameters(model, reference_params):
-    with torch.no_grad():
-        for (name, param), (_, ref_param) in zip(model.named_parameters(), reference_params.items()):
-            param.copy_(ref_param)
-@torch.no_grad()
-def eval_f(model, physics, data_fidelity, gt, lmbd, x_init=None, max_iter=10):
-    """
-    Evaluate f(θ) = ||x̂ - x*|| where x̂ = argmax_x φ(x, θ)
-    """
-    # Generate observed data y from ground truth
-    y = physics(gt)
+    def sample_noise(self, normalize=True):
+        param_shapes = [p.shape for p in self.model.parameters()]
+        total_size = sum(p.numel() for p in self.model.parameters())
+        noise_vec = torch.randn(total_size, device=self.device)
+        if normalize:
+            noise_vec /= (torch.norm(noise_vec) + 1e-8)
 
-    # Solve the variational problem (i.e., reconstruct image x̂)
-    if x_init is None:
-        x_init = y.clone()
-    x_hat, iterations = reconstruct_gd(
-        y=y,
-        x_init=x_init,
-        physics=physics,
-        data_fidelity=data_fidelity,
-        regularizer=model,  # this is θ
-        lamda=lmbd,
-        step_size=1.0,
-        max_iter=max_iter,
-        tol=1e-2,
-        detach_grads=True,
-        verbose=False,
-        return_stats=False,
-        BB=True,
-        LS=True,
-    )
-    # Compute distance to ground truth
-    return torch.mean(
-        torch.norm(x_hat - gt, p=2, dim=(1, 2, 3))**2
-    ), x_hat , iterations
-def gaussian_smoothing_step(
-    model: nn.Module,
-    physics,
-    data_fidelity,
-    gt,
-    lmbd,
-    optim_algo="SGD",
-    normalize_gradients=True,
-    warm_start=True,
-    sigma=1e-1,
-    N=20,
-    lr=1e-1,
-    verbose=True,
-    device="cpu",
-):
-    if optim_algo == "Adam":
-        optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    elif optim_algo == "SGD":
-        optimizer = torch.optim.SGD(model.parameters(), lr=lr)
-    psnr = PSNR()
-    # Store original parameters
-    original_params = {name: param.detach().clone() for name, param in model.named_parameters()}
+        noise_dict = {}
+        idx = 0
+        for (name, param), shape in zip(self.model.named_parameters(), param_shapes):
+            size = param.numel()
+            noise_dict[name] = noise_vec[idx:idx+size].reshape(shape)
+            idx += size
+        return noise_dict
 
-    # Initialize empty gradient dict
-    grad_est = {name: torch.zeros_like(param) for name, param in model.named_parameters()}
-    
-    x_hat = None # To store the last x_hat for negative perturbation
-    x_hat_pos = None # To store the last x_hat for positive perturbation
-    loss = []
-    psnr_values = []
-    iterations = 0
-    for _ in range(N):
-        noise = sample_noise_like(model)
-        # 1. θ + σu
-        apply_perturbation(model, noise, sigma)
-        f_pos, out_pos , iterations_pos = eval_f(model=model, physics=physics, data_fidelity=data_fidelity, gt=gt, lmbd=lmbd, x_init=x_hat_pos) # x_init can be reset for each perturbation or carried over
+    def apply_perturbation(self, noise, sigma, sign=1):
+        with torch.no_grad():
+            for name, param in self.model.named_parameters():
+                param.add_(sign * sigma * noise[name])
 
-        # Reset to θ
-        set_parameters(model, original_params)
+    def set_parameters(self, param_dict):
+        with torch.no_grad():
+            for (name, param), (_, ref_param) in zip(self.model.named_parameters(), param_dict.items()):
+                param.copy_(ref_param)
 
-        # 2. θ
-        # Evaluate f(θ)
-        f, out, iterations_ = eval_f(model=model, physics=physics, data_fidelity=data_fidelity, gt=gt, lmbd=lmbd, x_init=x_hat) # x_init can be reset for each perturbation or carried over
-        iterations += iterations_ + iterations_pos
-        if warm_start:
-            # Use the output from the positive perturbation as the new x_init for the next iteration
-            x_hat_pos = out_pos
-            x_hat = out
-        # Reset to θ
-        set_parameters(model, original_params)
+    @torch.no_grad()
+    def evaluate_objective(self, x_init=None, N_l= None, alg = "GD", max_iter=1000, lower_lr = 1e-2):
+        y = self.physics(self.gt)
+        random_indices = None
+        x_hat = torch.zeros_like(self.physics.A_dagger(y))
+        if N_l is None:
+            N_l = y.shape[0]
+        else:
+            random_indices = self.slice
+            y = y[random_indices]
+            self.gt_slice = self.gt[random_indices]
+        if x_init is None:
+            x_init = y.clone()
+        if alg == "GD":
+            x_hat, iters = reconstruct_gd(
+                y=y,
+                x_init=x_init.to(self.device),
+                physics=self.physics,
+                data_fidelity=self.data_fidelity,
+                regularizer=self.model,
+                lamda=self.lmbd,
+                step_size=lower_lr,
+                max_iter=max_iter,
+                tol=1e-6,
+                detach_grads=True,
+                verbose=False,
+                return_stats=False,
+                BB=False,
+                LS=True,
+            )
+        elif alg == "SGD":
+            patch_size = (y.shape[2]//4, y.shape[3]//4)
+            x_hat, iters = reconstruct_sgd(
+                y=y,
+                x_init=x_init.to(self.device),
+                physics=self.physics,
+                data_fidelity=self.data_fidelity,
+                regularizer=self.model,
+                lamda=self.lmbd,
+                step_size= lower_lr,
+                patch_size=patch_size,
+                max_iter=max_iter,
+                tol=1e-6,
+                detach_grads=True,
+                verbose=False,
+                return_stats=True,
+            )
+        mse = torch.mean(torch.norm(x_hat - self.gt_slice, p=2, dim=(1, 2, 3)) ** 2)
+        return mse, x_hat, iters
 
-        # Accumulate gradients: (f(θ + σu) - f(θ)) * u
+    def estimate_gradient_single_level(
+        self, sigma=1e-1, N=20, max_iter=100, warm_start=False, normalize_grad=True, N_l=None
+    ):
+        original_params = {n: p.detach().clone() for n, p in self.model.named_parameters()}
+        grad_est = {name: torch.zeros_like(p) for name, p in self.model.named_parameters()}
+        loss_list, psnr_list, total_iters = [], [], 0
+        x_hat = x_hat_pos = None
+        self.slice = np.random.choice(self.gt.shape[0], N_l, replace=False) if N_l else np.arange(self.gt.shape[0])
+        for _ in range(N):
+            noise = self.sample_noise()
+
+            # θ + σu
+            self.apply_perturbation(noise, sigma)
+            f_pos, x_hat_pos_out, iters_pos = self.evaluate_objective(x_init=x_hat_pos, max_iter=max_iter, N_l=N_l, alg= self.alg, lower_lr= self.lower_lr)
+
+            self.set_parameters(original_params)
+
+            # θ
+            f, x_hat_out, iters = self.evaluate_objective(x_init=x_hat, max_iter=max_iter, N_l=N_l, alg=self.alg, lower_lr= self.lower_lr)
+            total_iters += (iters+1) * N_l + (iters_pos + 1) * N_l
+
+            if warm_start:
+                x_hat = x_hat_out
+                x_hat_pos = x_hat_pos_out
+            for name in grad_est:
+                grad_est[name] += (f_pos - f) * noise[name]
+
+            loss_list.append(f.item())
+            psnr_list.append(self.psnr_metric(self.gt_slice, x_hat_out).mean().item())
+
+        # Normalize gradients
         for name in grad_est:
-            grad_est[name] += (f_pos - f) * noise[name]
-        loss.append(f.item())
-        psnr_values.append(psnr(gt.to(device), out).mean().item())
+            grad_est[name] /= (N * sigma)
 
-    if verbose:
-        print(f"Loss: {np.mean(loss)}, PSNR: {np.mean(psnr_values)}, Cost: {iterations}")
-    optimizer.zero_grad()  # Clear previous gradients
-    # Final gradient estimate
-    for name in grad_est:
-        grad_est[name] /= (N * sigma) # Divide by N*sigma due to the perturbation scaling
+        if normalize_grad:
+            norm = torch.sqrt(sum((g**2).sum() for g in grad_est.values()))
+            for g in grad_est.values():
+                g /= (norm + 1e-8)
+        self.gt_slice = self.gt.clone()  # Reset ground truth slice for next iteration
+        # plt.imshow(x_hat_out[0,0].cpu().numpy(), cmap='gray')
+        # plt.title("Reconstructed Image")
+        # plt.axis('off')
+        # plt.show()
+        return grad_est, np.mean(loss_list), np.mean(psnr_list), total_iters
 
-    # Gradient descent step: θ ← θ - lr * grad
-    with torch.no_grad():
-        # normalize gradients to prevent large updates
-        norm_grad = torch.sqrt(sum((g**2).sum() for g in grad_est.values()))
-        for name, param in model.named_parameters():
-            param.grad = grad_est[name]  # Set the gradient for the upper-level optimizer
-            if normalize_gradients:
-                param.grad /= (norm_grad + 1e-8)  # Normalize the gradient
-    optimizer.step()  # Perform the optimization step
-    return np.mean(loss), np.mean(psnr_values), iterations
+    def multilevel_gradient_step(
+        self,
+        levels: List[int],
+        N_per_level_upper: List[int],
+        N_per_level_lower: List[int],
+        sigma=1e-1,
+        warm_start=True,
+        normalize_grad=True,
+        verbose=True,        
+    ):
+        assert len(levels) == len(N_per_level_upper) == len(N_per_level_lower)
+
+        grad_total = {name: torch.zeros_like(p) for name, p in self.model.named_parameters()}
+        total_loss, total_psnr, total_iters = [], [], 0
+
+        for i, (lvl, N, N_l) in enumerate(zip(levels, N_per_level_upper, N_per_level_lower)):
+            grad_high, loss_high, psnr_high, iters_high = self.estimate_gradient_single_level(
+                sigma=sigma, N=N, max_iter=lvl, warm_start=warm_start, normalize_grad=False, N_l =N_l
+            )
+
+            if i > 0:
+                grad_low, *_ = self.estimate_gradient_single_level(
+                    sigma=sigma, N=N, max_iter=levels[i-1], warm_start=warm_start, normalize_grad=False, N_l=N_l
+                )
+            else:
+                grad_low = {name: torch.zeros_like(p) for name, p in self.model.named_parameters()}
+
+            for name in grad_total:
+                grad_total[name] += grad_high[name] - grad_low[name]
+
+            total_loss.append(loss_high)
+            total_psnr.append(psnr_high)
+            total_iters += iters_high
+
+        # Normalize gradients if needed
+        if normalize_grad:
+            norm = torch.sqrt(sum((g**2).sum() for g in grad_total.values()))
+            for g in grad_total.values():
+                g /= (norm + 1e-8)
+
+        self.optimizer.zero_grad()
+        for name, param in self.model.named_parameters():
+            param.grad = grad_total[name]
+        self.optimizer.step()
+
+        if verbose:
+            print(f"[MLMC] Loss: {np.mean(total_loss):.4f}, PSNR: {np.mean(total_psnr):.2f}, Cost: {total_iters}")
+
+        return np.mean(total_loss), np.mean(total_psnr), total_iters

@@ -163,6 +163,7 @@ def stochastic_gradient_descent(
             break
         
         if verbose and i % 10 == 0:
+            print(f"Iter {i}: energy={energy.item():.4e}, rel_change={rel_change:.2e}, epoch: {epoch}")
             strategy_info = ""
             if batch_size is not None and batch_size < data_size:
                 strategy_info = f", batch: {len(y_batch)}/{data_size}, epoch: {epoch}"
@@ -222,9 +223,11 @@ def gradient_descent_sgd(
 
         # Insert updated patch into full x
         x = x_patch
+        rel_change = torch.norm(step) / torch.norm(x_sub).clamp(min=1e-8)
 
+        if i % 50 ==0 and verbose:
+            print(f"Iter {i}: energy={energy.mean():.4e}, rel_change={rel_change:.2e}")
         if not stop_by_iter:
-            rel_change = torch.norm(step) / torch.norm(x_sub).clamp(min=1e-8)
             if rel_change < tol:
                 if verbose:
                     print(f"Converged at iter {i}, rel change: {rel_change:.2e}")
@@ -365,7 +368,7 @@ def reconstruct_sgd(
     patch_size=(32, 32),
     x_init=None,
     detach_grads=True,
-    verbose=False,
+    verbose=True,
     return_stats=False,
 ):
     """
