@@ -1,4 +1,3 @@
-#%%
 import torch
 from typing import Callable, Tuple
 import inspect
@@ -14,9 +13,10 @@ def gradient_descent(
     LS: bool = True,
     L_init: float = 1.0,
     tol: float = 1e-4,
-    rho: float = 0.9,
-    delta: float = 0.1,
+    rho: float = 0.5,
+    delta: float = 0.0001,
     verbose: bool = False,
+    stop_by_iter: bool = False
 ):
     """
     Gradient Descent with optional Barzilai-Borwein step and Armijo Line Search.
@@ -42,7 +42,6 @@ def gradient_descent(
             s_dot_s = (dx * dx).sum()
             if s_dot_s > 0:
                 L = torch.clamp(s_dot_y / s_dot_s, min=1e-6, max=1e6)
-
         # Line search
         step_accepted = False
         for _ in range(50 if LS else 1):
@@ -50,10 +49,10 @@ def gradient_descent(
             x_new = x - step
             energy_new = f(x_new, y)
 
-            # Armijo condition
-            armijo = energy_new <= energy - delta * (step * step).view(step.shape[0], -1).sum(dim=1)
-            if not LS or torch.all(armijo):
-            # if not LS or energy_new <= energy - delta * step.norm()**2:
+            # Armijo condition (assuming scalar energies)
+            armijo = energy_new <= energy - delta * step.norm()**2
+
+            if not LS or armijo.all():
                 x.copy_(x_new)
                 step_accepted = True
                 break
@@ -62,18 +61,25 @@ def gradient_descent(
 
         if not step_accepted:
             if verbose:
-                print(f"Line search failed at iter {i}")
-            break
+                print(f"Line search failed at iter {i}, falling back to fixed step size.")
+            # Fallback: take a fixed small step in the negative gradient direction
+            step = grad / 1e7
+            x.sub_(step)
+            # Optionally recompute energy if needed, but continue optimization
 
         # Convergence check
-        rel_change = torch.norm(x - x_old) / torch.norm(x).clamp(min=1e-8)
-        if rel_change < tol:
-            if verbose:
-                print(f"Converged at iter {i}, rel change: {rel_change:.2e}")
-            break
+        if not stop_by_iter:
+            rel_change = torch.norm(x - x_old) / torch.norm(x).clamp(min=1e-8)
+            if rel_change < tol:
+                if verbose:
+                    print(f"Converged at iter {i}, rel change: {rel_change:.2e}")
+                break
 
     if verbose:
-        print(f"Finished at iter {i}, rel change: {rel_change:.2e}")
+        if not stop_by_iter:
+            print(f"Finished at iter {i}, rel change: {rel_change:.2e}")
+        else:
+            print(f"Finished at iter {i}")
 
     return x, L, i
 

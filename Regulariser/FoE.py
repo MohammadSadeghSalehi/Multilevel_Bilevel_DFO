@@ -34,7 +34,7 @@ class FieldOfExperts(Prior):
         num_channels=1,
         colored=False,
         expert_weights=None,
-        smoothing=1e-3,
+        smoothing=1e-4,
         tanh_potential=False,
         zero_mean=True,
         device="cuda" if torch.cuda.is_available() else "cpu",
@@ -48,7 +48,7 @@ class FieldOfExperts(Prior):
         self.colored = colored
         self.tanh_potential = tanh_potential
         self.zero_mean = zero_mean
-        
+        self.total_weight = nn.Parameter(torch.log(torch.tensor(1.0)), requires_grad=True)
         # Determine input/output channels based on color mode
         if colored:
             # For colored images, we can either:
@@ -68,7 +68,8 @@ class FieldOfExperts(Prior):
             conv_out_channels,
             kernel_size,
             padding=kernel_size // 2,
-            bias=False
+            bias=False,
+            padding_mode='zeros'
         )
         
         # Apply zero-mean constraint if requested
@@ -252,7 +253,7 @@ class FieldOfExperts(Prior):
             expert_energy = weight_k * potential_values.sum(dim=(1, 2, 3))
             total_energy = total_energy + expert_energy
         
-        return total_energy
+        return total_energy * self.total_weight.exp()  # Scale by total weight
     
     def grad(self, x, get_energy=False):
         """
@@ -298,8 +299,8 @@ class FieldOfExperts(Prior):
         
         if get_energy:
             return total_energy, final_grad
-        return final_grad
-    
+        return final_grad * self.total_weight.exp()
+
     def get_expert_kernels(self):
         """Return the current expert kernels for visualization"""
         return self.conv_experts.weight.data.clone()
@@ -315,37 +316,37 @@ class FieldOfExperts(Prior):
 
 
 # Example usage and testing
-if __name__ == "__main__":
-    # Test with grayscale images
-    print("Testing with grayscale images:")
-    foe_gray = FieldOfExperts(num_experts=4, kernel_size=5, num_channels=1, colored=False)
+# if __name__ == "__main__":
+#     # Test with grayscale images
+#     print("Testing with grayscale images:")
+#     foe_gray = FieldOfExperts(num_experts=4, kernel_size=5, num_channels=1, colored=False)
     
-    x_gray = torch.randn(2, 1, 32, 32, requires_grad=True)
-    energy_gray = foe_gray.g(x_gray)
-    grad_gray = foe_gray.grad(x_gray)
+#     x_gray = torch.randn(2, 1, 32, 32, requires_grad=True)
+#     energy_gray = foe_gray.g(x_gray)
+#     grad_gray = foe_gray.grad(x_gray)
     
-    print(f"Grayscale - Energy shape: {energy_gray.shape}, values: {energy_gray}")
-    print(f"Grayscale - Gradient shape: {grad_gray.shape}")
-    print(f"Expert weights: {foe_gray.expert_weights}")
-    print(f"Smoothing params: {foe_gray.smoothing_params}")
+#     print(f"Grayscale - Energy shape: {energy_gray.shape}, values: {energy_gray}")
+#     print(f"Grayscale - Gradient shape: {grad_gray.shape}")
+#     print(f"Expert weights: {foe_gray.expert_weights}")
+#     print(f"Smoothing params: {foe_gray.smoothing_params}")
     
-    # Test with colored images
-    print("\nTesting with colored images:")
-    foe_color = FieldOfExperts(num_experts=6, kernel_size=3, num_channels=3, colored=True)
+#     # Test with colored images
+#     print("\nTesting with colored images:")
+#     foe_color = FieldOfExperts(num_experts=6, kernel_size=3, num_channels=3, colored=True)
     
-    x_color = torch.randn(2, 3, 32, 32, requires_grad=True)
-    energy_color = foe_color.g(x_color)
-    grad_color = foe_color.grad(x_color)
+#     x_color = torch.randn(2, 3, 32, 32, requires_grad=True)
+#     energy_color = foe_color.g(x_color)
+#     grad_color = foe_color.grad(x_color)
     
-    print(f"Color - Energy shape: {energy_color.shape}, values: {energy_color}")
-    print(f"Color - Gradient shape: {grad_color.shape}")
+#     print(f"Color - Energy shape: {energy_color.shape}, values: {energy_color}")
+#     print(f"Color - Gradient shape: {grad_color.shape}")
     
-    # Test energy and gradient consistency
-    energy2, grad2 = foe_gray.grad(x_gray, get_energy=True)
-    print(f"\nConsistency check - Energy matches: {torch.allclose(energy_gray, energy2)}")
-    print(f"Consistency check - Gradient matches: {torch.allclose(grad_gray, grad2)}")
+#     # Test energy and gradient consistency
+#     energy2, grad2 = foe_gray.grad(x_gray, get_energy=True)
+#     print(f"\nConsistency check - Energy matches: {torch.allclose(energy_gray, energy2)}")
+#     print(f"Consistency check - Gradient matches: {torch.allclose(grad_gray, grad2)}")
     
-    # Display some kernel information
-    kernels = foe_gray.get_expert_kernels()
-    print(f"\nKernel shapes: {kernels.shape}")
-    print(f"First kernel mean (should be ~0 if zero_mean=True): {kernels[0].mean().item():.6f}")
+#     # Display some kernel information
+#     kernels = foe_gray.get_expert_kernels()
+#     print(f"\nKernel shapes: {kernels.shape}")
+#     print(f"First kernel mean (should be ~0 if zero_mean=True): {kernels[0].mean().item():.6f}")
