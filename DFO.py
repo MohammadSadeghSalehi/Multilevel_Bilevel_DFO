@@ -18,7 +18,8 @@ class MultilevelSmoothingOptimizer:
         optimizer_type="SGD",
         device="cpu",
         lower_alg="GD",
-        lower_lr=1e-2
+        lower_lr=1e-2,
+        lower_tol=1e-1
     ):
         self.model = model.to(device)
         self.physics = physics
@@ -30,8 +31,10 @@ class MultilevelSmoothingOptimizer:
         self.device = device
         self.psnr_metric = PSNR()
         self.optimizer = self._build_optimizer(optimizer_type, lr)
+        self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=20, gamma=0.8)
         self.alg = lower_alg
         self.lower_lr = lower_lr
+        self.eps = lower_tol
 
     def _build_optimizer(self, opt_type, lr):
         if opt_type == "Adam":
@@ -86,7 +89,7 @@ class MultilevelSmoothingOptimizer:
                 lamda=self.lmbd,
                 step_size=lower_lr,
                 max_iter=max_iter,
-                tol=1e-6,
+                tol=self.eps,
                 detach_grads=True,
                 verbose=False,
                 return_stats=False,
@@ -94,7 +97,7 @@ class MultilevelSmoothingOptimizer:
                 LS=True,
             )
         elif alg == "SGD":
-            patch_size = (y.shape[2]//4, y.shape[3]//4)
+            patch_size = (y.shape[2]//2, y.shape[3]//2)
             x_hat, iters = reconstruct_sgd(
                 y=y,
                 x_init=x_init.to(self.device),
@@ -105,10 +108,10 @@ class MultilevelSmoothingOptimizer:
                 step_size= lower_lr,
                 patch_size=patch_size,
                 max_iter=max_iter,
-                tol=1e-6,
+                tol=self.eps,
                 detach_grads=True,
                 verbose=False,
-                return_stats=True,
+                return_stats=False,
             )
         mse = torch.mean(torch.norm(x_hat - self.gt_slice, p=2, dim=(1, 2, 3)) ** 2)
         return mse, x_hat, iters
@@ -120,7 +123,7 @@ class MultilevelSmoothingOptimizer:
         grad_est = {name: torch.zeros_like(p) for name, p in self.model.named_parameters()}
         loss_list, psnr_list, total_iters = [], [], 0
         x_hat = x_hat_pos = None
-        self.slice = np.random.choice(self.gt.shape[0], N_l, replace=False) if N_l else np.arange(self.gt.shape[0])
+        self.slice = np.random.choice(self.gt.shape[0], N_l, replace=True) if N_l else np.arange(self.gt.shape[0])
         for _ in range(N):
             noise = self.sample_noise()
 
@@ -202,7 +205,8 @@ class MultilevelSmoothingOptimizer:
         for name, param in self.model.named_parameters():
             param.grad = grad_total[name]
         self.optimizer.step()
-
+        self.scheduler.step( )
+        print(self.optimizer.param_groups[0]['lr'])
         if verbose:
             print(f"[MLMC] Loss: {np.mean(total_loss):.4f}, PSNR: {np.mean(total_psnr):.2f}, Cost: {total_iters}")
 

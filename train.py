@@ -39,13 +39,23 @@ else:
 torch.manual_seed(0)
 np.random.seed(0)
 
+# Calculating L and N_l given lower tolerance epsilon
+def calculate_levels(epsilon, alg = "SGD", rho = 1.0):
+    if alg == "SGD":
+        L = int(2 * epsilon**(-1))
+        N_l = [int(4 * epsilon**(-1) * (l + 1)**(-1)) for l in range(L)]
+    elif alg == "GD":
+        L = int(np.log(3 * epsilon**(-1)) / np.log(rho**(-1)))
+        N_l = [int(epsilon**(-1)*(l+1)**2 * rho**(l+1) * np.pi**2/2) for l in range(L)]
+    return L, N_l
+
 problem = "Denoising" #Inpainting
 regulariser_type = "TV" # "FoE"
-test_len = 8
-train_len = 96
-batch_size = 96
-img_size_x = 96
-img_size_y = 96
+test_len = 1
+train_len = 300
+batch_size = 300
+img_size_x = 64
+img_size_y = 64
 lower_level_alg = "SGD"
 lower_level_step = 1e-1
 
@@ -62,11 +72,12 @@ logs_dict = {
     "reg": regulariser_type,
     "problem": problem,
     "ML" : True,
-    "saved_params": None
+    "saved_params": None,
+    "epsilon": None,
 }
 
 train_dataset = get_dataset("BSDS500", test=False
-                          , transform=Compose([CenterCrop((img_size_x, img_size_y)),
+                          , transform=Compose([RandomCrop((img_size_x, img_size_y)),
                                                 Grayscale(num_output_channels=1,),
                                                 ]))
 val_dataset = get_dataset("BSDS500", test=True
@@ -75,7 +86,7 @@ val_dataset = get_dataset("BSDS500", test=True
                                                 ]))
 # splitting in training and validation set
 train_set = torch.utils.data.Subset(train_dataset, range(train_len))
-val_set = torch.utils.data.Subset(val_dataset, range(train_len, train_len + test_len))
+val_set = torch.utils.data.Subset(val_dataset, range(96, 97))
 
 print(f"test size: {test_len}, train size: {train_len}")
 # create dataloaders
@@ -105,18 +116,20 @@ for gt in val_dataloader:
     print("PSNR before reconstruction: ", psnr(gt.to(device), y))
    
 # Bilevel Monte Carlo
-
-
-num_epochs = 50
+epsilon = 1e-1
+upper_lr = 1e-2
+L , N_l = calculate_levels(epsilon=epsilon, alg=lower_level_alg)
+max_lower_iter = [20 for _ in range(len(N_l))]
+N_per_level_upper = [1 for _ in range(len(N_l))]
+print(f"Number of levels: {L}, Number of samples per level: {N_l}")
+num_epochs = 100
 settings = [
-    {"level": [200, 100, 50], "N_per_level_upper": [1, 1, 1], "N_per_level_lower": [24, 48, 96], "ML": True},
-    {"level": [200, 200, 200], "N_per_level_upper": [1,1,1], "N_per_level_lower": [24, 48, 96], "ML": False},
-    {"level": [100, 100, 100], "N_per_level_upper": [1,1,1], "N_per_level_lower": [24, 48, 96], "ML": False},
-    {"level": [50, 50, 50], "N_per_level_upper": [1,1,1], "N_per_level_lower": [24, 48, 96], "ML": False},
+    {"level": max_lower_iter, "N_per_level_upper": N_per_level_upper, "N_per_level_lower": N_l, "ML": True},
+    {"level": max_lower_iter, "N_per_level_upper": N_per_level_upper, "N_per_level_lower": [max(N_l) for _ in range(len(N_l))], "ML": False},
 ]
 for sets in settings:
     if regulariser_type == "TV":
-        regularizer = SmoothedTV(tv_weight=0.1, smoothing=1e-2, learn_tv_weight=True, learn_smoothing=True, device=device).to(device)
+        regularizer = SmoothedTV(tv_weight=1e-2, smoothing=1e-2, learn_tv_weight=True, learn_smoothing=True, device=device).to(device)
     elif regulariser_type == "FoE":
         regularizer = FieldOfExperts(
             num_experts=4,
@@ -128,7 +141,8 @@ for sets in settings:
         data_fidelity=data_fidelity,
         ground_truth=gt,
         lmbd=lmbd,
-        lr = 1e-2,
+        lr = upper_lr,
+        lower_tol=epsilon,
         optimizer_type="SGD",  # or "SGD"
         device=device,
         lower_alg=lower_level_alg,
@@ -152,15 +166,20 @@ for sets in settings:
     "cost": [0],
     "sigma": None,
     "N": None,
-    "lr": None,
+    "lr": upper_lr,
     "algo": "SGD",
+    "upper_algo": "SGD",
     "warm_start": True,
     "reg": regulariser_type,
     "problem": problem,
     "ML" : sets["ML"],
-    "saved_params": None
+    "saved_params": None,
     }
-  
+    logs_dict["epsilon"] = epsilon
+    if logs_dict['ML']:
+        logs_dict["L"] = L
+    else:
+        logs_dict["L"] = None
     total_iterations = 0
     for epoch in range(num_epochs):
         epoch_loss = 0
@@ -180,7 +199,7 @@ for sets in settings:
         for gt in val_dataloader:
             gt = gt.to(device)
             y = physics(gt)
-            if lower_level_alg == "GD":
+            if lower_level_alg == "SGD":
                 x_hat_out, _ = reconstruct_gd(
                     y=y,
                     physics=physics,
@@ -196,7 +215,7 @@ for sets in settings:
                     BB=False,
                     LS=True,
                 )
-            elif lower_level_alg == "SGD":
+            elif lower_level_alg == "GD":
                 x_hat_out, _ = reconstruct_sgd(
                     y=y,
                     physics=physics,
@@ -234,12 +253,12 @@ for sets in settings:
                     print(f"Saving reconstructed image for {regulariser_type} {problem} at level {sets['level']}")
                     os.makedirs("logs", exist_ok=True)
                     
-                    plt.savefig(f"logs/reconstructed_image_{regulariser_type}_{problem}_{lower_level_alg}_{sets['level']}.png", bbox_inches='tight', dpi=300)
+                    plt.savefig(f"logs/reconstructed_image_{regulariser_type}_{problem}_{lower_level_alg}_{sets['ML']}_{epsilon}.png", bbox_inches='tight', dpi=300)
                     plt.close()
                 plt.close()
             logs_dict["saved_params"] = opt.model.state_dict()
         # save the model and logs
-        torch.save(logs_dict, f"logs/logs_{regulariser_type}_{problem}_{lower_level_alg}_{sets['level']}.pt")
+        torch.save(logs_dict, f"logs/logs_{regulariser_type}_{problem}_{lower_level_alg}_{sets['ML']}_{epsilon}.pt")
 
 
 # %%
