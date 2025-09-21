@@ -31,7 +31,11 @@ class MultilevelSmoothingOptimizer:
         self.device = device
         self.psnr_metric = PSNR()
         self.optimizer = self._build_optimizer(optimizer_type, lr)
-        self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=20, gamma=0.8)
+        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            self.optimizer,
+            T_max=200,   # number of iterations/epochs for one cosine cycle
+            eta_min=0.0  # minimum learning rate (default 0)
+        )
         self.alg = lower_alg
         self.lower_lr = lower_lr
         self.eps = lower_tol
@@ -123,7 +127,8 @@ class MultilevelSmoothingOptimizer:
         grad_est = {name: torch.zeros_like(p) for name, p in self.model.named_parameters()}
         loss_list, psnr_list, total_iters = [], [], 0
         x_hat = x_hat_pos = None
-        self.slice = np.random.choice(self.gt.shape[0], N_l, replace=True) if N_l else np.arange(self.gt.shape[0])
+        replace = False if N_l <= self.gt.shape[0] else True
+        self.slice = np.random.choice(self.gt.shape[0], N_l, replace=replace) if N_l else np.arange(self.gt.shape[0])
         for _ in range(N):
             noise = self.sample_noise()
 

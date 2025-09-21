@@ -34,7 +34,7 @@ class FieldOfExperts(Prior):
         num_channels=1,
         colored=False,
         expert_weights=None,
-        smoothing=1e-4,
+        smoothing=1e-3,
         tanh_potential=False,
         zero_mean=True,
         device="cuda" if torch.cuda.is_available() else "cpu",
@@ -48,7 +48,7 @@ class FieldOfExperts(Prior):
         self.colored = colored
         self.tanh_potential = tanh_potential
         self.zero_mean = zero_mean
-        self.total_weight = nn.Parameter(torch.log(torch.tensor(1.0)), requires_grad=True)
+        self.total_weight = nn.Parameter(torch.log(torch.tensor(-1.0)), requires_grad=True)
         # Determine input/output channels based on color mode
         if colored:
             # For colored images, we can either:

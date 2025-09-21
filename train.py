@@ -40,7 +40,7 @@ torch.manual_seed(0)
 np.random.seed(0)
 
 # Calculating L and N_l given lower tolerance epsilon
-def calculate_levels(epsilon, alg = "SGD", rho = 1.0):
+def calculate_levels(epsilon, alg = "SGD", rho = 0.3):
     if alg == "SGD":
         L = int(2 * epsilon**(-1))
         N_l = [int(4 * epsilon**(-1) * (l + 1)**(-1)) for l in range(L)]
@@ -54,8 +54,8 @@ regulariser_type = "TV" # "FoE"
 test_len = 1
 train_len = 300
 batch_size = 300
-img_size_x = 64
-img_size_y = 64
+img_size_x = 128
+img_size_y = 128
 lower_level_alg = "SGD"
 lower_level_step = 1e-1
 
@@ -81,7 +81,7 @@ train_dataset = get_dataset("BSDS500", test=False
                                                 Grayscale(num_output_channels=1,),
                                                 ]))
 val_dataset = get_dataset("BSDS500", test=True
-                          , transform=Compose([CenterCrop((320, 320)),
+                          , transform=Compose([Resize((128, 128)),
                                                 Grayscale(num_output_channels=1,),
                                                 ]))
 # splitting in training and validation set
@@ -116,13 +116,14 @@ for gt in val_dataloader:
     print("PSNR before reconstruction: ", psnr(gt.to(device), y))
    
 # Bilevel Monte Carlo
-epsilon = 1e-1
-upper_lr = 1e-2
+epsilon = 5e-1
+budget = 1e7
+upper_lr = 2e-3
 L , N_l = calculate_levels(epsilon=epsilon, alg=lower_level_alg)
-max_lower_iter = [20 for _ in range(len(N_l))]
+max_lower_iter = [50 for _ in range(len(N_l))]
 N_per_level_upper = [1 for _ in range(len(N_l))]
 print(f"Number of levels: {L}, Number of samples per level: {N_l}")
-num_epochs = 100
+num_epochs = 200
 settings = [
     {"level": max_lower_iter, "N_per_level_upper": N_per_level_upper, "N_per_level_lower": N_l, "ML": True},
     {"level": max_lower_iter, "N_per_level_upper": N_per_level_upper, "N_per_level_lower": [max(N_l) for _ in range(len(N_l))], "ML": False},
@@ -146,7 +147,7 @@ for sets in settings:
         optimizer_type="SGD",  # or "SGD"
         device=device,
         lower_alg=lower_level_alg,
-        lower_lr=lower_level_step
+        lower_lr=lower_level_step,
     )
     # compute the initial PSNR and loss of noise
     y = physics(gt.to(device))
@@ -167,7 +168,7 @@ for sets in settings:
     "sigma": None,
     "N": None,
     "lr": upper_lr,
-    "algo": "SGD",
+    "algo": lower_level_alg,
     "upper_algo": "SGD",
     "warm_start": True,
     "reg": regulariser_type,
@@ -190,7 +191,7 @@ for sets in settings:
             N_per_level_upper = sets["N_per_level_upper"]
             N_per_level_lower = sets["N_per_level_lower"]
             opt.gt = gt
-            loss, psnr_values, iterations  = opt.multilevel_gradient_step(levels=levels, N_per_level_upper=N_per_level_upper, N_per_level_lower=N_per_level_lower, warm_start=False, normalize_grad=False, verbose=True)
+            loss, psnr_values, iterations  = opt.multilevel_gradient_step(levels=levels, N_per_level_upper=N_per_level_upper, N_per_level_lower=N_per_level_lower, sigma=1e-1, warm_start=False, normalize_grad=False, verbose=True)
             logs_dict["loss"].append(loss.item())
             logs_dict["psnr"].append(psnr_values.item())
             total_iterations += iterations
@@ -199,7 +200,7 @@ for sets in settings:
         for gt in val_dataloader:
             gt = gt.to(device)
             y = physics(gt)
-            if lower_level_alg == "SGD":
+            if lower_level_alg == "SGD" or lower_level_alg == "GD":
                 x_hat_out, _ = reconstruct_gd(
                     y=y,
                     physics=physics,
@@ -207,8 +208,8 @@ for sets in settings:
                     regularizer=opt.model,
                     lamda=lmbd,
                     step_size=lower_level_step,
-                    max_iter=200,
-                    tol=1e-6,
+                    max_iter=500,
+                    tol=1e-4,
                     detach_grads=True,
                     verbose=False,
                     return_stats=False,
@@ -249,7 +250,7 @@ for sets in settings:
                 plt.axis('off')
                 psnr_plot = psnr(gt[0], x_hat_out[0]).item()
                 plt.suptitle(f"Reconstructed Image - PSNR: {psnr_val.mean().item():.2f} dB")
-                if epoch == num_epochs - 1:
+                if epoch == num_epochs - 1 or total_iterations >= budget:
                     print(f"Saving reconstructed image for {regulariser_type} {problem} at level {sets['level']}")
                     os.makedirs("logs", exist_ok=True)
                     
@@ -257,6 +258,10 @@ for sets in settings:
                     plt.close()
                 plt.close()
             logs_dict["saved_params"] = opt.model.state_dict()
+        if total_iterations >= budget:
+            print(f"Reached budget of {budget} iterations, stopping training.")
+            break
+
         # save the model and logs
         torch.save(logs_dict, f"logs/logs_{regulariser_type}_{problem}_{lower_level_alg}_{sets['ML']}_{epsilon}.pt")
 
