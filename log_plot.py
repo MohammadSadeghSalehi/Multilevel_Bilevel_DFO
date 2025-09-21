@@ -34,16 +34,27 @@ def plot_metric(all_logs, metric, ylabel, title, filename, yscale="linear", xlim
     """Generic plotting function."""
     # set font size
     plt.rcParams.update({"font.size": 14})
+    color_palette_ML = plt.get_cmap("tab10")
+    color_palette_SL = plt.get_cmap("tab10")
+    line_styles = ["-", "--"]
+    ML_counter = 0
+    SL_counter = 0
     plt.figure(figsize=(10, 8))
     for logs in all_logs:
         label = make_label(logs)
-        plt.plot(logs["cost"], logs[metric], label=label)
+        plt.plot(logs["cost"], logs[metric], label=label, 
+                 color=color_palette_ML(ML_counter) if logs.get("ML") else color_palette_SL(SL_counter),
+                 linestyle=line_styles[0] if logs.get("ML") else line_styles[1])
+        if logs.get("ML"):
+            ML_counter += 1
+        else:
+            SL_counter += 1
     plt.xscale("symlog")
     if yscale != "linear":
         plt.yscale(yscale)
     plt.xlabel("Total Cost (Iterations)")
     plt.ylabel(ylabel)  
-    plt.title(title)
+    # plt.title(title)
     plt.legend(fontsize=14)
     plt.grid(True, alpha=0.5)
     if xlim is not None:
