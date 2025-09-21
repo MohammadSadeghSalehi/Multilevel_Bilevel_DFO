@@ -6,34 +6,46 @@ import matplotlib.pyplot as plt
 # -- Load the logs
 logs_files = glob.glob("logs/*.pt")
 all_logs = []
+# Sort log files based on the value before .pt (e.g., 0.5 in logs_TV_Denoising_SGD_False_0.5.pt)
+def extract_sort_key(filename):
+    base = os.path.basename(filename)
+    key_str = base.split("_")[-1].replace(".pt", "")
+    try:
+        return float(key_str)
+    except ValueError:
+        return key_str  # fallback if not a float
+
+logs_files = sorted(logs_files, key=extract_sort_key)
+
 for file in logs_files:
     logs = torch.load(file, map_location="cpu")
     logs["file"] = file
     all_logs.append(logs)
 
-def make_label(logs):
+def make_label(logs, show_upper_alg=False, show_lr=False):
     """Build a clean legend label from log metadata."""
     parts = []
-    if logs.get("algo"):
+    if logs.get("algo") and show_upper_alg:
         parts.append(f"{logs['algo']}")
     # if logs.get("reg"):
     #     parts.append(f"reg={logs['reg']}")
     # if logs.get("problem"):
     #     parts.append(f"problem={logs['problem']}")
     if "ML" in logs:
-        parts.append(f"ML={logs['ML']}")
-    if logs.get("lr") is not None:
+        if logs['ML']:
+            parts.append(f"ML")
+    if logs.get("lr") is not None and show_lr:
         parts.append(f"lr={logs['lr']}")
     if logs.get("epsilon") is not None:
-        parts.append(f"eps={logs['epsilon']}")
+        parts.append(rf"$\epsilon={logs['epsilon']}$")
     if logs.get("L") is not None:
         parts.append(f"L={logs['L']}")
     return ", ".join(parts)
 
-def plot_metric(all_logs, metric, ylabel, title, filename, yscale="linear", xlim=None, ylim = None):
+def plot_metric(all_logs, metric, xlabel, ylabel, title, filename, yscale="linear", xlim=None, ylim = None):
     """Generic plotting function."""
     # set font size
-    plt.rcParams.update({"font.size": 14})
+    plt.rcParams.update({"font.size": 18})
     color_palette_ML = plt.get_cmap("tab10")
     color_palette_SL = plt.get_cmap("tab10")
     line_styles = ["-", "--"]
@@ -52,7 +64,7 @@ def plot_metric(all_logs, metric, ylabel, title, filename, yscale="linear", xlim
     plt.xscale("symlog")
     if yscale != "linear":
         plt.yscale(yscale)
-    plt.xlabel("Total Cost (Iterations)")
+    plt.xlabel(xlabel)
     plt.ylabel(ylabel)  
     # plt.title(title)
     plt.legend(fontsize=14)
@@ -66,15 +78,15 @@ def plot_metric(all_logs, metric, ylabel, title, filename, yscale="linear", xlim
     plt.show()
 
 # -- Generate plots
-plot_metric(all_logs, "loss", "Loss", 
+plot_metric(all_logs, "loss", "Total computational cost", "Loss", 
             "Training Loss", 
             "loss_bilevel_monte_carlo.png", yscale="log", xlim=(1e2, None))
 
-plot_metric(all_logs, "psnr", "PSNR", 
+plot_metric(all_logs, "psnr", "Total computational cost", "PSNR", 
             "Training PSNR ", 
             "psnr_bilevel_monte_carlo.png", xlim=(1e2, None))
 
-plot_metric(all_logs, "val_psnr", "Validation PSNR", 
+plot_metric(all_logs, "val_psnr", "Total computational cost", "Validation PSNR", 
             "Validation PSNR", 
             "val_psnr_bilevel_monte_carlo.png", xlim=(1e2, None))
 #%%
