@@ -31,13 +31,13 @@ def make_label(logs, show_upper_alg=False, show_lr=False):
     #     parts.append(f"reg={logs['reg']}")
     # if logs.get("problem"):
     #     parts.append(f"problem={logs['problem']}")
+    if logs.get("epsilon") is not None:
+        parts.append(rf"$\epsilon={logs['epsilon']}$")
     if "ML" in logs:
         if logs['ML']:
             parts.append(f"ML")
     if logs.get("lr") is not None and show_lr:
         parts.append(f"lr={logs['lr']}")
-    if logs.get("epsilon") is not None:
-        parts.append(rf"$\epsilon={logs['epsilon']}$")
     if logs.get("L") is not None:
         parts.append(f"L={logs['L']}")
     return ", ".join(parts)
@@ -45,13 +45,14 @@ def make_label(logs, show_upper_alg=False, show_lr=False):
 def plot_metric(all_logs, metric, xlabel, ylabel, title, filename, yscale="linear", xlim=None, ylim = None):
     """Generic plotting function."""
     # set font size
-    plt.rcParams.update({"font.size": 18})
+    plt.rcParams.update({"font.size": 20})
+    plt.rcParams.update({'lines.linewidth': 1.5})
     color_palette_ML = plt.get_cmap("tab10")
     color_palette_SL = plt.get_cmap("tab10")
-    line_styles = ["-", "--"]
+    line_styles = ["-", "dotted"]
     ML_counter = 0
     SL_counter = 0
-    plt.figure(figsize=(10, 8))
+    plt.figure(figsize=(12, 8))
     for logs in all_logs:
         label = make_label(logs)
         plt.plot(logs["cost"], logs[metric], label=label, 
@@ -67,8 +68,8 @@ def plot_metric(all_logs, metric, xlabel, ylabel, title, filename, yscale="linea
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)  
     # plt.title(title)
-    plt.legend(fontsize=14)
-    plt.grid(True, alpha=0.5)
+    plt.legend(fontsize=20, loc='best')
+    plt.grid(True, alpha=0.9)
     if xlim is not None:
         plt.xlim(xlim)
     if ylim is not None:
@@ -78,15 +79,15 @@ def plot_metric(all_logs, metric, xlabel, ylabel, title, filename, yscale="linea
     plt.show()
 
 # -- Generate plots
-plot_metric(all_logs, "loss", "Total computational cost", "Loss", 
+plot_metric(all_logs, "loss", "Total computational cost", "Training Loss", 
             "Training Loss", 
-            "loss_bilevel_monte_carlo.png", yscale="log", xlim=(1e2, None))
+            "loss_bilevel_monte_carlo.png", yscale="log", xlim=(1e2, 1e8))
 
-plot_metric(all_logs, "psnr", "Total computational cost", "PSNR", 
-            "Training PSNR ", 
-            "psnr_bilevel_monte_carlo.png", xlim=(1e2, None))
+plot_metric(all_logs, "psnr", "Total computational cost", "Training PSNR", 
+            "Training PSNR", 
+            "psnr_bilevel_monte_carlo.png", xlim=(1e2, 1e8))
 
 plot_metric(all_logs, "val_psnr", "Total computational cost", "Validation PSNR", 
             "Validation PSNR", 
-            "val_psnr_bilevel_monte_carlo.png", xlim=(1e2, None))
+            "val_psnr_bilevel_monte_carlo.png", xlim=(1e2, 1e8))
 #%%
