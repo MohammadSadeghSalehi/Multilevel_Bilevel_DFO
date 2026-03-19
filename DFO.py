@@ -3,6 +3,7 @@ import numpy as np
 from deepinv.loss.metric import PSNR
 from GD import reconstruct_gd
 from SGD import reconstruct_sgd
+from FISTA import reconstruct_fista
 from typing import List
 import matplotlib.pyplot as plt
 np.random.seed(0)
@@ -77,16 +78,20 @@ class MultilevelSmoothingOptimizer:
         x_hat = torch.zeros_like(self.physics.A_dagger(y))
         if N_l is None:
             N_l = y.shape[0]
+            self.gt_slice = self.gt
         else:
             random_indices = self.slice
             y = y[random_indices]
             self.gt_slice = self.gt[random_indices]
-        if x_init is None:
-            x_init = y.clone()
+        
+        # Ensure x_init is on the correct device if provided
+        if x_init is not None:
+             x_init = x_init.to(self.device)
+        
         if alg == "GD":
             x_hat, iters = reconstruct_gd(
                 y=y,
-                x_init=x_init.to(self.device),
+                x_init=x_init,
                 physics=self.physics,
                 data_fidelity=self.data_fidelity,
                 regularizer=self.model,
@@ -104,13 +109,28 @@ class MultilevelSmoothingOptimizer:
             patch_size = (y.shape[2]//2, y.shape[3]//2)
             x_hat, iters = reconstruct_sgd(
                 y=y,
-                x_init=x_init.to(self.device),
+                x_init=x_init,
                 physics=self.physics,
                 data_fidelity=self.data_fidelity,
                 regularizer=self.model,
                 lamda=self.lmbd,
                 step_size= lower_lr,
                 patch_size=patch_size,
+                max_iter=max_iter,
+                tol=self.eps,
+                detach_grads=True,
+                verbose=False,
+                return_stats=False,
+            )
+        elif alg == "FISTA":
+            x_hat, iters = reconstruct_fista(
+                y=y,
+                x_init=x_init.to(self.device) if x_init is not None else None,
+                physics=self.physics,
+                data_fidelity=self.data_fidelity,
+                regularizer=self.model,
+                lamda=self.lmbd,
+                step_size=lower_lr,
                 max_iter=max_iter,
                 tol=self.eps,
                 detach_grads=True,

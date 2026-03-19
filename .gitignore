@@ -1,1 +1,11 @@
 .DS_Store
+Regulariser/__pycache__/TV.cpython-313.pyc
+dataset/__pycache__/__init__.cpython-313.pyc
+dataset/__pycache__/datasets.cpython-313.pyc
+Regulariser/__pycache__/FoE.cpython-313.pyc
+problems/__pycache__/__init__.cpython-313.pyc
+problems/__pycache__/ct_radon.cpython-313.pyc
+problems/__pycache__/phantoms.cpython-313.pyc
+problems/__pycache__/pde_elliptic.cpython-313.pyc
+Regulariser/__pycache__/Tikhonov.cpython-313.pyc
+/logs
