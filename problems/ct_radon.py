@@ -82,8 +82,8 @@ class CTSmoothedTV(nn.Module):
     def __init__(self, img_size=64, device="cpu"):
         super().__init__()
         # Learnable regularization parameters (in log10 space matching MATLAB)
-        self.log10_lambda = nn.Parameter(torch.tensor(-5.0))  # Tikhonov weight
-        self.log10_alpha = nn.Parameter(torch.tensor(-2.0))   # TV weight
+        self.log10_lambda = nn.Parameter(torch.tensor(-2.0))  # Tikhonov weight
+        self.log10_alpha = nn.Parameter(torch.tensor(-5.0))   # TV weight
         self.log10_nu = nn.Parameter(torch.tensor(-2.0))      # TV smoothing
 
         self.img_size = img_size
@@ -155,3 +155,63 @@ class CTSmoothedTV(nn.Module):
             energy = self.g(x)
             return energy, total_grad
         return total_grad
+
+from Regulariser.FoE import FieldOfExperts
+
+class CTFieldOfExperts(FieldOfExperts):
+    """
+    Combined Tikhonov + Light FoE (WCRR) regularizer for CT.
+    """
+    def __init__(self, img_size=64, num_experts=4, kernel_size=5, device="cpu"):
+        super().__init__(
+            num_experts=num_experts,
+            kernel_size=kernel_size,
+            num_channels=1,
+            colored=False,
+            zero_mean=True,
+            device=device
+        )
+        # Learnable Tikhonov weight in log10 space matching CT_TV.
+        # Starting too large dominated the learned FoE prior by a plain L2 penalty.
+        self.log10_lambda = nn.Parameter(torch.tensor(-5.0))
+        self.img_size = img_size
+
+        # Use a CT-level multiplier and keep the base FoE total scale fixed.
+        self.log10_alpha = nn.Parameter(torch.tensor(-5.0))
+        with torch.no_grad():
+            self.total_weight.fill_(0.0)
+        self.total_weight.requires_grad = False
+
+        # FieldOfExperts stores smoothing in natural log coordinates.
+        self.log_smoothing = nn.Parameter(torch.full((num_experts,), float(np.log(1e-2)), dtype=torch.float32))
+
+    @property
+    def lam(self):
+        return 10.0 ** self.log10_lambda
+
+    # Safe properties bridging the variables to train.py's dynamic condition evaluator
+    @property
+    def alpha(self):
+        return 10.0 ** self.log10_alpha
+
+    @property
+    def nu(self):
+        return self.smoothing_params.mean()
+
+    def g(self, x):
+        tik_energy = self.lam * torch.sum(x ** 2, dim=(1, 2, 3))
+        foe_energy = self.alpha * super().g(x)
+        return tik_energy + foe_energy
+
+    def grad(self, x, get_energy=False):
+        tik_grad = 2.0 * self.lam * x
+
+        if get_energy:
+            foe_energy_native, foe_grad_native = super().grad(x, get_energy=True)
+            foe_energy = self.alpha * foe_energy_native
+            foe_grad = self.alpha * foe_grad_native
+            tik_energy = self.lam * torch.sum(x ** 2, dim=(1, 2, 3))
+            return tik_energy + foe_energy, tik_grad + foe_grad
+
+        foe_grad = self.alpha * super().grad(x, get_energy=False)
+        return tik_grad + foe_grad

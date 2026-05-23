@@ -149,3 +149,59 @@ class LoDoPaB(Dataset):
         if self.transforms is not None:
             img = self.transforms(img)
         return img
+
+
+class LoDoPaBCustom(Dataset):
+    """
+    Custom LoDoPaB Dataset that reads all .hdf5 files in the root folder,
+    shuffles them deterministically, and provides a split.
+    """
+    def __init__(self, root, split="train", transform=None, seed=42, subset_fraction=1.0):
+        import glob
+        self.base_path = root
+        self.transforms = transform
+
+        files = glob.glob(os.path.join(self.base_path, "*.hdf5"))
+        files.sort()
+
+        self.indices = []
+        for f in files:
+            with h5py.File(f, "r") as h5f:
+                length = h5f["data"].shape[0]
+            for i in range(length):
+                self.indices.append((f, i))
+        
+        # Deterministic shuffle
+        np.random.seed(seed)
+        np.random.shuffle(self.indices)
+
+        # Apply subset reduction
+        if subset_fraction < 1.0:
+            self.indices = self.indices[:int(len(self.indices) * subset_fraction)]
+
+        n = len(self.indices)
+        train_end = int(0.8 * n)
+        val_end = int(0.9 * n)
+
+        if split == "train":
+            self.indices = self.indices[:train_end]
+        elif split == "val":
+            self.indices = self.indices[train_end:val_end]
+        elif split == "test":
+            self.indices = self.indices[val_end:]
+        else:
+            raise ValueError("split must be train, val, or test")
+
+    def __len__(self):
+        return len(self.indices)
+
+    def __getitem__(self, idx):
+        import torch
+        f, i = self.indices[idx]
+        with h5py.File(f, "r") as h5f:
+            img = h5f["data"][i, :, :]
+            
+        img = torch.from_numpy(img).unsqueeze(0).float() # (1, H, W)
+        if self.transforms is not None:
+            img = self.transforms(img)
+        return img

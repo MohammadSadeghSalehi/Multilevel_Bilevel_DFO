@@ -9,3 +9,8 @@ problems/__pycache__/phantoms.cpython-313.pyc
 problems/__pycache__/pde_elliptic.cpython-313.pyc
 Regulariser/__pycache__/Tikhonov.cpython-313.pyc
 /logs
+/__pycache__
+/BS
+scripts/__pycache__/diagnose_sgd_lower.cpython-313.pyc
+figs/TV/ct_tv_eps_0p1_1_summary.csv
+figs/TV/ct_tv_eps_0p1_0p5_1_summary.csv

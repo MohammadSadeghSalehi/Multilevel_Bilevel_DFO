@@ -1,4 +1,4 @@
-from .datasets import BSDS500Dataset, BSD68, LoDoPaB
+from .datasets import BSDS500Dataset, BSD68, LoDoPaB, LoDoPaBCustom
 from torchvision.transforms.v2 import ToImage, Compose, Grayscale, ToDtype
 import torch
 import os
@@ -22,6 +22,15 @@ def get_dataset(key, test=False, transform=None, root=None):
         return BSDS500Dataset(
             root=location, download=True, test=test, transform=transforms
         )
+    elif key == "BSDS500_color":
+        location = "BS" if root is None else os.path.join(root, "BS")
+        if transform is None:
+            transforms = Compose([ToImage(), ToDtype(torch.float32, scale=True)])
+        else:
+            transforms = Compose([ToImage(), ToDtype(torch.float32, scale=True), transform])
+        return BSDS500Dataset(
+            root=location, download=True, test=test, transform=transforms
+        )
     elif key == "BSD68":
         if transform is None:
             transforms = Compose(
@@ -40,13 +49,7 @@ def get_dataset(key, test=False, transform=None, root=None):
                 [ToImage(), ToDtype(torch.float32, scale=True), transform]
             )
         return LoDoPaB(root=location, download=True, test=test, transform=transforms)
-    # elif key == "BSDS500_color":
-    #     if transform is None:
-    #         transforms = Compose([ToImage(), ToDtype(torch.float32, scale=True)])
-    #     else:
-    #         transforms = Compose([ToImage(), ToDtype(torch.float32, scale=True), transform])
-    #     return BSDS500Dataset(
-    #         root="BSDS500", download=True, test=test, transform=transforms
-    #     )
+    elif key == "LoDoPaBCustom":
+        return LoDoPaBCustom(root=location, split="test" if test else "train", transform=transform)
     else:
         raise NameError("Unknown dataset!")
