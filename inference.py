@@ -1,4 +1,3 @@
-#%%
 import torch
 from deepinv.physics import Denoising, GaussianNoise, Inpainting, Tomography
 from deepinv.optim import L2

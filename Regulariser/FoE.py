@@ -1,7 +1,5 @@
-#%%
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.nn.utils.parametrize as P
 from deepinv.optim import Prior
 
@@ -18,13 +16,13 @@ class FieldOfExperts(Prior):
     Field of Experts regularizer with learnable convolutional kernels and smooth potentials.
 
     The regularizer computes:
-    FoE(x) = Σ_k λ_k * Σ_i ψ(K_k * x_i, ε_k)
+    FoE(x) = sum_k lambda_k * sum_i psi(K_k * x_i, epsilon_k)
 
     where:
     - K_k are learnable convolution kernels
-    - ψ is a smooth potential function (smoothed L1-norm)
-    - λ_k are learnable weights for each expert
-    - ε_k are learnable smoothing parameters for each expert
+    - psi is a smooth potential function (smoothed L1 norm)
+    - lambda_k are learnable weights for each expert
+    - epsilon_k are learnable smoothing parameters for each expert
     """
 
     def __init__(

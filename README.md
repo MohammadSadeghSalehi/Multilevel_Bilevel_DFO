@@ -116,28 +116,72 @@ For high-resolution CT, compare the training-level reconstruction quality agains
 ### Example Runs
 
 **1. Image Denoising with Total Variation (TV)**
+
+The command below runs both the MLMC estimator and the matched single-level
+baseline for the requested accuracy. Use the same settings for
+`--epsilon 1.0`, `--epsilon 0.5`, and `--epsilon 0.1` to reproduce the TV
+denoising comparison.
+
 ```bash
-python train.py --problem Denoising --regulariser TV --lower_alg SGD --epsilon 0.5 --num_epochs 10
+python train.py --problem Denoising --regulariser TV --lower_alg SGD \
+  --epsilon 1.0 --num_epochs 20 --img_size 64 --batch_size 0 \
+  --train_batches 10 --val_len 12 --val_batches 3 \
+  --lower_step 0.1 --lower_max_iter 500 --upper_lr 2e-3 \
+  --sgd_step_decay sqrt --sgd_patch_mode full --run_tag paper_tv
+
+python train.py --problem Denoising --regulariser TV --lower_alg SGD \
+  --epsilon 0.5 --num_epochs 20 --img_size 64 --batch_size 0 \
+  --train_batches 10 --val_len 12 --val_batches 3 \
+  --lower_step 0.1 --lower_max_iter 500 --upper_lr 2e-3 \
+  --sgd_step_decay sqrt --sgd_patch_mode full --run_tag paper_tv
+
+python train.py --problem Denoising --regulariser TV --lower_alg SGD \
+  --epsilon 0.1 --num_epochs 20 --img_size 64 --batch_size 0 \
+  --train_batches 10 --val_len 12 --val_batches 3 \
+  --lower_step 0.1 --lower_max_iter 500 --upper_lr 2e-3 \
+  --sgd_step_decay sqrt --sgd_patch_mode full --run_tag paper_tv
 ```
 
 **2. RGB Image Denoising with Field of Experts (FoE)**
-Use `--color` to keep BSDS500 in RGB and initialize FoE with three input channels. GD is useful for the deterministic lower-level rate, while patch-SGD gives the stochastic lower-level comparison.
+
+Use `--color` to keep BSDS500 in RGB and initialize the FoE regularizer with
+three input channels. The paper-style colour FoE runs use eight `5x5` experts,
+full-image SGD lower-level updates, a finest lower-level budget of 500
+iterations, and one Gaussian smoothing direction per level.
+
 ```bash
-python train.py --problem Denoising --regulariser FoE --lower_alg GD \
-  --epsilon 0.5 --num_epochs 20 --img_size 64 --batch_size 0 \
-  --train_batches 10 --val_len 12 --val_batches 3 --lower_step 0.1 --upper_lr 1e-3 --color
-
-python train.py --problem Denoising --regulariser FoE --lower_alg SGD \
-  --epsilon 0.5 --num_epochs 20 --img_size 64 --batch_size 0 \
-  --train_batches 10 --val_len 12 --val_batches 3 --lower_step 0.02 --upper_lr 1e-3 \
-  --upper_directions 4 --lower_max_iter 1000 --sgd_step_decay sqrt \
-  --sgd_patch_mode full --freeze_foe_kernels --color
-
 python train.py --problem Denoising --regulariser FoE --lower_alg SGD \
   --epsilon 1.0 --num_epochs 20 --img_size 128 --batch_size 0 \
-  --train_batches 10 --val_len 12 --val_batches 3 --lower_step 0.01 --lower_max_iter 500 \
-  --upper_lr 2e-3 --upper_directions 4 --sgd_step_decay sqrt \
-  --sgd_patch_mode full --foe_num_experts 4 --color --run_tag full_sgd_e1_k4
+  --train_batches 10 --val_len 12 --val_batches 3 \
+  --lower_step 0.01 --lower_max_iter 500 --upper_lr 2e-3 \
+  --upper_directions 1 --sgd_step_decay sqrt --sgd_patch_mode full \
+  --foe_num_experts 8 --color --run_tag eps1_full_sgd_k4_iter1000
+
+python train.py --problem Denoising --regulariser FoE --lower_alg SGD \
+  --epsilon 0.5 --num_epochs 20 --img_size 128 --batch_size 0 \
+  --train_batches 10 --val_len 12 --val_batches 3 \
+  --lower_step 0.01 --lower_max_iter 500 --upper_lr 2e-3 \
+  --upper_directions 1 --sgd_step_decay sqrt --sgd_patch_mode full \
+  --foe_num_experts 8 --color --run_tag eps1_full_sgd_k4_iter1000
+
+python train.py --problem Denoising --regulariser FoE --lower_alg SGD \
+  --epsilon 0.1 --num_epochs 30 --img_size 128 --batch_size 0 \
+  --train_batches 10 --val_len 12 --val_batches 3 \
+  --lower_step 0.01 --lower_max_iter 500 --upper_lr 2e-3 \
+  --upper_directions 1 --sgd_step_decay sqrt --sgd_patch_mode full \
+  --foe_num_experts 8 --color --run_tag eps1_full_sgd_k4_iter1000
+```
+
+After the FoE logs are available, regenerate the FoE paper figures with:
+
+```bash
+python scripts/make_foe_color_figures.py
+```
+
+The CT-TV paper figures are regenerated with:
+
+```bash
+python scripts/make_tv_paper_figures.py
 ```
 
 **3. CT Reconstruction with CT_TV Regularizer**
@@ -180,6 +224,11 @@ During execution, standard output provides iteration/epoch progress alongside me
 - **Image Reconstructions**: Periodically, visual plots showing the Ground Truth, Noisy Observation, and Current Reconstruction are saved directly to the `logs/` directory.
 - **PDE Overlays**: For the PDE problem, a 3-panel plot containing the 2D field, reconstruction, and current sensor locations over the absolute error map is saved to `logs/pde_fields_iter_k.png`.
 - **Checkpoints**: The model parameters, loss histories, and level configurations are saved as `.pt` files within the `logs/` directory for downstream use.
+
+The public repository intentionally ignores local datasets, raw training logs,
+cache folders, and diagnostic scratch outputs. Generated paper figures live in
+`figs/TV/`; raw logs needed to regenerate them should be kept locally under
+`logs/`.
 
 ## Inference and Plotting
 

@@ -1,4 +1,3 @@
-#%%
 import torch
 from deepinv.physics import Denoising, GaussianNoise, Inpainting, Tomography
 from deepinv.optim import L2
@@ -41,7 +40,7 @@ torch.manual_seed(0)
 np.random.seed(0)
 
 
-# ─── Level schedule calculations ─────────────────────────────────────────
+# Level schedule calculations
 def calculate_levels(epsilon, alg="SGD", rho=0.3):
     """
     Calculate number of levels L and samples per level N_l
@@ -119,7 +118,7 @@ def limited_batches(dataloader, max_batches=0):
         yield batch_idx, batch
 
 
-# ─── Experiment setup ────────────────────────────────────────────────────
+# Experiment setup
 def setup_denoising_experiment(regulariser_type, img_size_x=128, img_size_y=128,
                                 train_len=300, test_len=1, batch_size=300, val_batch_size=1,
                                 color=False, freeze_foe_kernels=False, foe_num_experts=None):
@@ -231,7 +230,7 @@ def setup_ct_experiment_full(regulariser_type="TV", img_size=64, num_angles=6,
     from problems.ct_radon import CTSmoothedTV
     from problems.phantoms import PhantomDataset
 
-    # Set up angles — uniformly spaced in [0, 180)
+    # Set up angles uniformly in [0, 180).
     angles = torch.linspace(0, 180, steps=num_angles + 1, device=device)[:-1]
 
     physics = Tomography(
@@ -358,7 +357,7 @@ def setup_lodopab_ct_experiment(regulariser_type="CT_TV", img_size=96, num_angle
     }
 
 
-# ─── Reconstruction dispatch ────────────────────────────────────────────
+# Reconstruction dispatch
 def reconstruct(y, physics, data_fidelity, regularizer, lmbd, lower_level_alg,
                 lower_level_step, max_iter=500, tol=1e-4,
                 verbose=False, return_stats=False, fista_mode="legacy",
@@ -400,7 +399,7 @@ def reconstruct(y, physics, data_fidelity, regularizer, lmbd, lower_level_alg,
     return x_hat, iters
 
 
-# ─── Main training loop ─────────────────────────────────────────────────
+# Main training loop
 def run_experiment(
     problem="Denoising",
     regulariser_type="TV",
@@ -886,7 +885,7 @@ def run_experiment(
             torch.save(logs_dict, f"logs/logs_{regulariser_type}_{run_problem_tag}_{lower_level_alg}_{sets['ML']}_{epsilon}{filename_suffix}.pt")
 
 
-# ─── PDE experiment (separate due to different structure) ────────────────
+# PDE experiment (separate due to different structure)
 def run_pde_experiment(
     I_grid=33,
     K=20,
@@ -1054,7 +1053,7 @@ def run_pde_experiment(
     return bilevel_model, logs
 
 
-# ─── CLI entry point ─────────────────────────────────────────────────────
+# CLI entry point
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Multilevel Bilevel DFO Experiments")
     parser.add_argument("--problem", type=str, default="Denoising",

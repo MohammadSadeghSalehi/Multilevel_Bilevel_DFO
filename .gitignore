@@ -1,16 +1,38 @@
+# Python caches and local tooling
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# OS/editor files
 .DS_Store
-Regulariser/__pycache__/TV.cpython-313.pyc
-dataset/__pycache__/__init__.cpython-313.pyc
-dataset/__pycache__/datasets.cpython-313.pyc
-Regulariser/__pycache__/FoE.cpython-313.pyc
-problems/__pycache__/__init__.cpython-313.pyc
-problems/__pycache__/ct_radon.cpython-313.pyc
-problems/__pycache__/phantoms.cpython-313.pyc
-problems/__pycache__/pde_elliptic.cpython-313.pyc
-Regulariser/__pycache__/Tikhonov.cpython-313.pyc
-/logs
-/__pycache__
-/BS
-scripts/__pycache__/diagnose_sgd_lower.cpython-313.pyc
-figs/TV/ct_tv_eps_0p1_1_summary.csv
-figs/TV/ct_tv_eps_0p1_0p5_1_summary.csv
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# Experiment data and generated training outputs
+logs/
+plot_figures/
+BS/
+dataset/LoDoPaB-CT/
+dataset/BSDS500*/
+
+# Local diagnostics and scratch artifacts
+scratch_run.py
+ct_results_summary.md
+s10589-025-00745-1.pdf
+figs/TV/*_summary.csv
+figs/TV/*sweep*.csv
+figs/TV/*check*.csv
+figs/TV/ct_tv_eps_0p1_1_*
